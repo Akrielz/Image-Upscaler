@@ -35,17 +35,17 @@ class ImageHandler:
     def save_image(self, image_name):
         self.image.save(image_name)
 
-    def downscale_image_keep_ratio_width(self, new_width, new_image_name):
+    def rescale_image_keep_ratio_width(self, new_width, new_image_name):
         width_percent = new_width / self.width
         new_height = int(self.height * width_percent)
-        self.downscale_image(new_width, new_height, new_image_name)
+        self.rescale_image(new_width, new_height, new_image_name)
 
-    def downscale_image_keep_ratio_height(self, new_height, new_image_name):
+    def rescale_image_keep_ratio_height(self, new_height, new_image_name):
         height_percent = new_height / self.height
         new_width = int(self.width * height_percent)
-        self.downscale_image(new_width, new_height, new_image_name)
+        self.rescale_image(new_width, new_height, new_image_name)
 
-    def downscale_image(self, new_width, new_height, new_image_name):
+    def rescale_image(self, new_width, new_height, new_image_name):
         new_width = int(new_width)
         new_height = int(new_height)
         new_image = self.image.resize((new_width, new_height), Image.ANTIALIAS)
