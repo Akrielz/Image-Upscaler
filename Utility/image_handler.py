@@ -2,6 +2,19 @@
 from PIL import Image
 
 
+def convert_pixel_to(pixel, nr_channels=3):
+    new_pixel = [0, 0, 0, 0]
+
+    for j, pixel_value in enumerate(pixel):
+        new_pixel[j] = pixel_value
+
+    if nr_channels == 3:
+        new_pixel = (new_pixel[0], new_pixel[1], new_pixel[2])
+    else:
+        new_pixel = (new_pixel[0], new_pixel[1], new_pixel[2], new_pixel[3])
+    return new_pixel
+
+
 class ImageHandler:
     def __init__(self):
         self.image = None
@@ -50,3 +63,4 @@ class ImageHandler:
         new_height = int(new_height)
         new_image = self.image.resize((new_width, new_height), Image.ANTIALIAS)
         new_image.save(new_image_name)
+

@@ -1,21 +1,23 @@
-from image_handler import *
-from utility import *
+from Utility.image_handler import *
+from Utility.math_utility import *
 import numpy as np
 
 
 class Interpolator:
     def __init__(self):
-        self.image_handler_initial = ImageHandler()
-        self.image_handler_naive = ImageHandler()
+        self.image_handler_initial = None
+        self.image_handler_naive = None
 
-    def upscale_image(self, image_name, distance):
+    def upscale_image(self, image_name, distance, save_name):
+        self.image_handler_initial = ImageHandler()
         self.image_handler_initial.read_image(image_name)
 
         new_width = self.image_handler_initial.width * distance - (distance-1)
         new_height = self.image_handler_initial.height * distance - (distance-1)
 
-        self.image_handler_initial.rescale_image(new_width, new_height, "temp.png")
-        self.image_handler_naive.read_image("temp.png")
+        self.image_handler_naive = ImageHandler()
+        self.image_handler_initial.rescale_image(new_width, new_height, "./Temporal/temp.png")
+        self.image_handler_naive.read_image("./Temporal/temp.png")
 
         pixels = self.image_handler_naive.get_pixels_pointer()
 
@@ -77,9 +79,4 @@ class Interpolator:
                 #     for c in corner_positions:
                 #         pixels[c[0], c[1]] = (0, 0, 0)
 
-        self.image_handler_naive.save_image("temp.png")
-
-
-# x_x_x
-# _____
-# x_x_x
+        self.image_handler_naive.save_image(save_name)
