@@ -135,13 +135,6 @@ class ProgressiveNN:
         # Normalize the output
         max_val = 0
 
-        # for i, patch in enumerate(Y):
-        #     for j, pixel in enumerate(patch):
-        #         for k, channel in enumerate(pixel):
-        #             if math.isnan(Y[i][j][k]):
-        #                 Y[i][j][k] = 1
-        #             pass
-
         for patch in Y:
             for pixel in patch:
                 for channel in pixel:
@@ -150,7 +143,7 @@ class ProgressiveNN:
         for i, patch in enumerate(Y):
             for j, pixel in enumerate(patch):
                 for k, channel in enumerate(pixel):
-                    # Y[i][j][k] /= max_val
+                    Y[i][j][k] /= max_val
                     pass
 
         Y = np.array(Y) * 255
