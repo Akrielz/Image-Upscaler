@@ -1,5 +1,5 @@
 # noinspection PyUnresolvedReferences
-from PIL import Image
+from PIL import Image, ImageEnhance
 
 
 def convert_pixel_to(pixel, nr_channels=3):
@@ -64,3 +64,12 @@ class ImageHandler:
         new_image = self.image.resize((new_width, new_height), Image.ANTIALIAS)
         new_image.save(new_image_name)
 
+    def apply_contrast(self, factor, save_name):
+        enhancer = ImageEnhance.Contrast(self.image)
+        new_image = enhancer.enhance(factor)
+        new_image.save(save_name)
+
+    def apply_sharpness(self, factor, save_name):
+        enhancer = ImageEnhance.Sharpness(self.image)
+        new_image = enhancer.enhance(factor)
+        new_image.save(save_name)

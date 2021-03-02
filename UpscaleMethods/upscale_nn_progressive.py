@@ -10,11 +10,17 @@ from keras.optimizers import Adam, RMSprop
 # noinspection PyUnresolvedReferences
 from keras import backend as K
 
+# noinspection PyUnresolvedReferences
+import keras
+
 from Utility.image_handler import *
 from Utility.os_utility import *
 from Utility.constants import *
 
 import numpy as np
+import threading
+
+import math
 
 
 class ModelNNPixelX2:
@@ -41,7 +47,8 @@ class ModelNNPixelX2:
             self.layers_hidden[-1])
 
         self.model = Model(inputs=self.layer_input, outputs=self.layer_output)
-        self.model.compile(loss="categorical_crossentropy", optimizer=Adam(lr=lr))
+        # self.model.compile(loss="categorical_crossentropy", optimizer=Adam(lr=lr))
+        self.model.compile(loss=keras.losses.MeanSquaredError(), optimizer=Adam(lr=lr))
 
 
 class ProgressiveNN:
@@ -50,6 +57,8 @@ class ProgressiveNN:
         self.nr_channels = nr_channels
 
         self.neural_network_x2 = ModelNNPixelX2(lr=self.lr, nr_channels=nr_channels).model
+        self.neural_network_x4 = ModelNNPixelX2(lr=self.lr, nr_channels=nr_channels).model
+        self.neural_network_x8 = ModelNNPixelX2(lr=self.lr, nr_channels=nr_channels).model
 
         self.image_handler_initial = None
         self.image_handler_downscaled = None
@@ -60,22 +69,50 @@ class ProgressiveNN:
         with open(nn_progressive_save_path + "/index.in", "r") as file:
             self.agent_id = int(file.readline())
 
-    def train_x2(self, training_directory="./data/original"):
-        files, directories = get_folder_content(training_directory)
-        X, Y = [], []
-        for file in files:
-            X_mini, Y_mini = self.get_training_data_x2(training_directory + "/" + file)
-            X.extend(X_mini)
-            Y.extend(Y_mini)
+    def train(self, training_directory="./data/original", method="x2", start=0):
+        files, directories = get_folder_content(training_directory, everything=True)
+        n = len(files)
 
-        X = [np.array(X) / 255]
-        Y = [np.array(Y) / 255]
+        neural_network = {
+            "x2": self.neural_network_x2,
+            "x4": self.neural_network_x4,
+            "x8": self.neural_network_x8,
+        }
 
-        self.neural_network_x2.fit(X, Y, verbose=1)
+        get_training_data = {
+            "x2": self.__get_training_data_x2,
+            "x4": self.__get_training_data_x4,
+            "x8": self.__get_training_data_x8,
+        }
+
+        for i, file in enumerate(files):
+            if i < start:
+                continue
+
+            print(f"File[{i}] / {n}")
+            X_mini, Y_mini = get_training_data[method](file)
+            X_mini = [np.array(X_mini) / 255]
+            Y_mini = [np.array(Y_mini) / 255]
+            neural_network[method].fit(X_mini, Y_mini, verbose=1)
+            self.save()
+
         pass
 
-    def upscale_x2(self, image_name, save_name):
-        # Cheap Upscale x2
+    def upscale_x2(self, image_name, save_name, color_approx=False):
+        self.__predict_upscale(image_name, save_name, self.neural_network_x2, color_approx)
+
+    def upscale_x4(self, image_name, save_name, color_approx=False):
+        upscale_x2_name = "./Temporal/temp_upscaled_u2.png"
+        self.upscale_x2(image_name, upscale_x2_name, color_approx=False)
+        self.__predict_upscale(upscale_x2_name, save_name, self.neural_network_x4, color_approx)
+
+    def upscale_x8(self, image_name, save_name, color_approx=False):
+        upscale_x4_name = "./Temporal/temp_upscaled_u4.png"
+        self.upscale_x4(image_name, upscale_x4_name, color_approx=False)
+        self.__predict_upscale(upscale_x4_name, save_name, self.neural_network_x8, color_approx)
+
+    def __predict_upscale(self, image_name, save_name, upscale_nn=None, color_approx=False):
+        # Cheap Upscale x1 -> x2
         self.image_handler_initial = ImageHandler()
         self.image_handler_initial.read_image(image_name)
 
@@ -84,16 +121,27 @@ class ProgressiveNN:
 
         self.image_handler_initial.rescale_image(upscaled_width, upscaled_height, save_name)
 
+        # Start from the cheap upscale
         self.image_handler_upscaled = ImageHandler()
         self.image_handler_upscaled.read_image(save_name)
 
         pixels = self.image_handler_upscaled.get_pixels_pointer()
 
-        X = self.get_image_patches_x2(pixels, upscaled_width, upscaled_height)
+        # Get NN version
+        X = self.__get_image_patches_x2(pixels, upscaled_width, upscaled_height)
         X = [np.array(X) / 255]
-        Y = self.neural_network_x2.predict(X)
+        Y = upscale_nn.predict(X)
 
+        # Normalize the output
         max_val = 0
+
+        # for i, patch in enumerate(Y):
+        #     for j, pixel in enumerate(patch):
+        #         for k, channel in enumerate(pixel):
+        #             if math.isnan(Y[i][j][k]):
+        #                 Y[i][j][k] = 1
+        #             pass
+
         for patch in Y:
             for pixel in patch:
                 for channel in pixel:
@@ -102,15 +150,18 @@ class ProgressiveNN:
         for i, patch in enumerate(Y):
             for j, pixel in enumerate(patch):
                 for k, channel in enumerate(pixel):
-                    Y[i][j][k] /= max_val
+                    # Y[i][j][k] /= max_val
+                    pass
 
         Y = np.array(Y) * 255
 
-        self.set_image_pixels_x2(pixels, upscaled_width, upscaled_height, Y)
-        # self.image_handler_upscaled.save_image(save_name+"2.png")
+        # Paint the output
+        self.__set_image_pixels_x2(pixels, upscaled_width, upscaled_height,
+                                   Y, self.image_handler_initial.pixels, color_approx)
         self.image_handler_upscaled.save_image(save_name)
+        pass
 
-    def set_image_pixels_x2(self, pixels, width, height, Y):
+    def __set_image_pixels_x2(self, pixels, width, height, Y, original_pixels, color_approx):
         index = 0
         for x_patch in range(width // 2):
             for y_patch in range(height // 2):
@@ -121,6 +172,23 @@ class ProgressiveNN:
                                     (2 * x, 2 * y + 1), (2 * x + 1, 2 * y + 1)]
 
                 local_pixels = Y[index]
+                original_pixel = original_pixels[x, y]
+
+                if color_approx:
+                    pixels_mean = [0, 0, 0]
+                    for future_pixel in local_pixels:
+                        pixels_mean[0] += future_pixel[0]
+                        pixels_mean[1] += future_pixel[1]
+                        pixels_mean[2] += future_pixel[2]
+
+                    adjust = [0, 0, 0]
+                    for i in range(len(pixels_mean)):
+                        pixels_mean[i] /= 4
+                        adjust[i] = original_pixel[i] / (pixels_mean[i] + EPS)
+
+                    for future_pixel in local_pixels:
+                        for i, adjusted_channel in enumerate(adjust):
+                            future_pixel[i] *= adjusted_channel
 
                 j = 0
                 for x, y in pixels_positions:
@@ -130,24 +198,39 @@ class ProgressiveNN:
 
                 index += 1
 
-    def get_image_patches_x2(self, pixels, width, height):
-        pixels_in_patch = []
+    def __get_image_patches_line_x2(self, pixels, height, line, pixels_in_patch_line):
+        for y_patch in range(height // 2):
+            x = line
+            y = y_patch
 
+            pixels_positions = [(2 * x, 2 * y), (2 * x + 1, 2 * y),
+                                (2 * x, 2 * y + 1), (2 * x + 1, 2 * y + 1)]
+
+            patch_pixels = np.array([convert_pixel_to(pixels[x, y], self.nr_channels)
+                                     for (x, y) in pixels_positions])
+            pixels_in_patch_line.append(patch_pixels)
+
+    def __get_image_patches_x2(self, pixels, width, height):
+        pixels_in_patch = [[] for i in range(width // 2)]
+
+        threads = []
         for x_patch in range(width // 2):
-            for y_patch in range(height // 2):
-                x = x_patch
-                y = y_patch
+            threads.append(threading.Thread(target=self.__get_image_patches_line_x2,
+                                            args=(pixels, height, x_patch, pixels_in_patch[x_patch])))
 
-                pixels_positions = [(2 * x, 2 * y), (2 * x + 1, 2 * y),
-                                    (2 * x, 2 * y + 1), (2 * x + 1, 2 * y + 1)]
+        for i in range(width // 2):
+            threads[i].start()
 
-                patch_pixels = np.array([convert_pixel_to(pixels[x, y], self.nr_channels)
-                                         for (x, y) in pixels_positions])
-                pixels_in_patch.append(patch_pixels)
+        for i in range(width // 2):
+            threads[i].join()
 
-        return pixels_in_patch
+        all_pixels = []
+        for i in range(width // 2):
+            all_pixels.extend(pixels_in_patch[i])
 
-    def get_training_data_x2(self, image_name):
+        return all_pixels
+
+    def __get_training_data_x2(self, image_name):
         # Downscale x2
         self.image_handler_initial = ImageHandler()
         self.image_handler_initial.read_image(image_name)
@@ -170,20 +253,110 @@ class ProgressiveNN:
         self.image_handler_rescaled = ImageHandler()
         self.image_handler_rescaled.read_image("./Temporal/temp_rescaled.png")
 
+        self.image_handler_initial = ImageHandler()
+        self.image_handler_initial.read_image(image_name)
+
         initial_pixels = self.image_handler_initial.get_pixels_pointer()
         rescaled_pixels = self.image_handler_rescaled.get_pixels_pointer()
 
-        X_train = self.get_image_patches_x2(rescaled_pixels, rescaled_width, rescaled_height)
-        Y_train = self.get_image_patches_x2(initial_pixels, rescaled_width, rescaled_height)
+        X_train = self.__get_image_patches_x2(rescaled_pixels, rescaled_width, rescaled_height)
+        Y_train = self.__get_image_patches_x2(initial_pixels, rescaled_width, rescaled_height)
+
+        return X_train, Y_train
+
+    def __get_training_data_x4(self, image_name):
+        downscale_x4_name = "./Temporal/temp_downscaled_d4.png"
+        rescaled_x2_name = "./Temporal/temp_downscaled_d2.png"
+        rescaled_x1_name = "./Temporal/temp_rescaled.png"
+
+        # Downscale x4
+        self.image_handler_initial = ImageHandler()
+        self.image_handler_initial.read_image(image_name)
+
+        downscaled_width = self.image_handler_initial.width // 4
+        downscaled_height = self.image_handler_initial.height // 4
+
+        self.image_handler_initial.rescale_image(downscaled_width, downscaled_height, downscale_x4_name)
+
+        # Best Rescale x2 (downscaled x2)
+        self.upscale_x2(image_name=downscale_x4_name, save_name=rescaled_x2_name, color_approx=True)
+
+        # Cheap Rescale (initial)
+        self.image_handler_downscaled = ImageHandler()
+        self.image_handler_downscaled.read_image(rescaled_x2_name)
+
+        rescaled_width = downscaled_width * 4
+        rescaled_height = downscaled_height * 4
+
+        self.image_handler_downscaled.rescale_image(rescaled_width, rescaled_height, rescaled_x1_name)
+
+        # Get Training Data
+        self.image_handler_rescaled = ImageHandler()
+        self.image_handler_rescaled.read_image(rescaled_x1_name)
+
+        self.image_handler_initial = ImageHandler()
+        self.image_handler_initial.read_image(image_name)
+        initial_pixels = self.image_handler_initial.get_pixels_pointer()
+        rescaled_pixels = self.image_handler_rescaled.get_pixels_pointer()
+
+        X_train = self.__get_image_patches_x2(rescaled_pixels, rescaled_width, rescaled_height)
+        Y_train = self.__get_image_patches_x2(initial_pixels, rescaled_width, rescaled_height)
+
+        return X_train, Y_train
+
+    def __get_training_data_x8(self, image_name):
+        downscale_x8_name = "./Temporal/temp_downscaled_d8.png"
+        rescaled_x2_name = "./Temporal/temp_downscaled_d2.png"
+        rescaled_x1_name = "./Temporal/temp_rescaled.png"
+
+        # Downscale x1 -> x8
+        self.image_handler_initial = ImageHandler()
+        self.image_handler_initial.read_image(image_name)
+
+        downscaled_width = self.image_handler_initial.width // 8
+        downscaled_height = self.image_handler_initial.height // 8
+
+        self.image_handler_initial.rescale_image(downscaled_width, downscaled_height, downscale_x8_name)
+
+        # Best Rescale x8 -> x2 (downscaled x2)
+        self.upscale_x4(image_name=downscale_x8_name, save_name=rescaled_x2_name, color_approx=True)
+
+        # Cheap Rescale (initial)
+        self.image_handler_downscaled = ImageHandler()
+        self.image_handler_downscaled.read_image(rescaled_x2_name)
+
+        rescaled_width = downscaled_width * 8
+        rescaled_height = downscaled_height * 8
+
+        self.image_handler_downscaled.rescale_image(rescaled_width, rescaled_height, rescaled_x1_name)
+
+        # Get Training Data
+        self.image_handler_rescaled = ImageHandler()
+        self.image_handler_rescaled.read_image(rescaled_x1_name)
+
+        self.image_handler_initial = ImageHandler()
+        self.image_handler_initial.read_image(image_name)
+        initial_pixels = self.image_handler_initial.get_pixels_pointer()
+        rescaled_pixels = self.image_handler_rescaled.get_pixels_pointer()
+
+        X_train = self.__get_image_patches_x2(rescaled_pixels, rescaled_width, rescaled_height)
+        Y_train = self.__get_image_patches_x2(initial_pixels, rescaled_width, rescaled_height)
 
         return X_train, Y_train
 
     def load(self, agent_id: int, to_compile=False):
         self.neural_network_x2 = load_model(nn_progressive_save_path + "/NNP_x2_" + str(agent_id) + ".h5",
                                             compile=to_compile)
+        self.neural_network_x4 = load_model(nn_progressive_save_path + "/NNP_x4_" + str(agent_id) + ".h5",
+                                            compile=to_compile)
+        self.neural_network_x8 = load_model(nn_progressive_save_path + "/NNP_x8_" + str(agent_id) + ".h5",
+                                            compile=to_compile)
 
     def save(self):
         self.neural_network_x2.save(nn_progressive_save_path + "/NNP_x2_" + str(self.agent_id) + ".h5")
+        self.neural_network_x4.save(nn_progressive_save_path + "/NNP_x4_" + str(self.agent_id) + ".h5")
+        self.neural_network_x8.save(nn_progressive_save_path + "/NNP_x8_" + str(self.agent_id) + ".h5")
+
         self.agent_id += 1
         with open(nn_progressive_save_path + "/index.in", "w") as file:
             file.write(str(self.agent_id))
