@@ -98,20 +98,23 @@ class ProgressiveNN:
 
         pass
 
-    def upscale_x2(self, image_name, save_name, color_approx=False):
-        self.__predict_upscale(image_name, save_name, self.neural_network_x2, color_approx)
+    def upscale_x2(self, image_name, save_name, color_approx=False, factor=1):
+        self.__predict_upscale(image_name, save_name, image_name,
+                               self.neural_network_x2, color_approx, factor, upscale=2)
 
-    def upscale_x4(self, image_name, save_name, color_approx=False):
+    def upscale_x4(self, image_name, save_name, color_approx=False, factor=1):
         upscale_x2_name = "./Temporal/temp_upscaled_u2.png"
-        self.upscale_x2(image_name, upscale_x2_name, color_approx=False)
-        self.__predict_upscale(upscale_x2_name, save_name, self.neural_network_x4, color_approx)
+        self.upscale_x2(image_name, upscale_x2_name, color_approx=color_approx, factor=1)
+        self.__predict_upscale(upscale_x2_name, save_name, image_name,
+                               self.neural_network_x4, color_approx, factor, upscale=4)
 
-    def upscale_x8(self, image_name, save_name, color_approx=False):
+    def upscale_x8(self, image_name, save_name, color_approx=False, factor=1):
         upscale_x4_name = "./Temporal/temp_upscaled_u4.png"
-        self.upscale_x4(image_name, upscale_x4_name, color_approx=False)
-        self.__predict_upscale(upscale_x4_name, save_name, self.neural_network_x8, color_approx)
+        self.upscale_x4(image_name, upscale_x4_name, color_approx=color_approx, factor=1)
+        self.__predict_upscale(upscale_x4_name, save_name, image_name,
+                               self.neural_network_x8, True, factor, upscale=8)
 
-    def __predict_upscale(self, image_name, save_name, upscale_nn=None, color_approx=False):
+    def __predict_upscale(self, image_name, save_name, original_image, upscale_nn=None, color_approx=False, factor=1, upscale=2):
         # Cheap Upscale x1 -> x2
         self.image_handler_initial = ImageHandler()
         self.image_handler_initial.read_image(image_name)
@@ -149,12 +152,16 @@ class ProgressiveNN:
         Y = np.array(Y) * 255
 
         # Paint the output
-        self.__set_image_pixels_x2(pixels, upscaled_width, upscaled_height,
-                                   Y, self.image_handler_initial.pixels, color_approx)
+        self.image_handler_initial = ImageHandler()
+        self.image_handler_initial.read_image(original_image)
+
+        self.__set_image_pixels_x2(pixels, upscaled_width, upscaled_height, Y,
+                                   self.image_handler_initial.pixels, color_approx,
+                                   factor, upscale=upscale)
         self.image_handler_upscaled.save_image(save_name)
         pass
 
-    def __set_image_pixels_x2(self, pixels, width, height, Y, original_pixels, color_approx):
+    def __set_image_pixels_x2(self, pixels, width, height, Y, original_pixels, color_approx, factor, upscale=2):
         index = 0
         for x_patch in range(width // 2):
             for y_patch in range(height // 2):
@@ -165,7 +172,7 @@ class ProgressiveNN:
                                     (2 * x, 2 * y + 1), (2 * x + 1, 2 * y + 1)]
 
                 local_pixels = Y[index]
-                original_pixel = original_pixels[x, y]
+                original_pixel = original_pixels[x // (upscale / 2), y // (upscale / 2)]
 
                 if color_approx:
                     pixels_mean = [0, 0, 0]
@@ -182,6 +189,8 @@ class ProgressiveNN:
                     for future_pixel in local_pixels:
                         for i, adjusted_channel in enumerate(adjust):
                             future_pixel[i] *= adjusted_channel
+                            dist = future_pixel[i] - original_pixel[i]
+                            future_pixel[i] = original_pixel[i] + dist * factor
 
                 j = 0
                 for x, y in pixels_positions:
