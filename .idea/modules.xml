@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/Image Upscale.iml" filepath="$PROJECT_DIR$/.idea/Image Upscale.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/Image-Upscaler.iml" filepath="$PROJECT_DIR$/.idea/Image-Upscaler.iml" />
     </modules>
   </component>
 </project>
